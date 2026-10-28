@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -41,12 +42,23 @@ val BubbleBlueLight = Color(0xFF16469E)
 val BubbleBlueDark = Color(0xFF0C2860)
 
 class MainActivity : ComponentActivity() {
+    private val heartbeatClient = HeartbeatClient()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Start sending heartbeats to base url
+        heartbeatClient.start(lifecycleScope)
+
         setContent {
             DarkScreen()
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        heartbeatClient.stop()
     }
 }
 
