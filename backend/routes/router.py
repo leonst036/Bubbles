@@ -1,6 +1,7 @@
 from fastapi import APIRouter
-from .utills.heartbeat import heartbeat
+from routes.heartbeat import router as heartbeat_router
 
 router = APIRouter()
 
-router.add_api_route("/heartbeat", heartbeat, methods=["GET"]) 
+# Register sub-routers
+router.include_router(heartbeat_router)

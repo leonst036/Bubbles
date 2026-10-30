@@ -14,22 +14,28 @@ import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 class HeartbeatClient(
-    private var baseUrl: String = "http://10.0.2.2:8000",
+    candidateUrls: List<String> = listOf(
+        "http://127.0.0.1:8000",
+        "http://192.168.55.127:8000",
+        "http://10.0.2.2:8000"
+    ),
     private val intervalMillis: Long = 5000L
 ) {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(3, TimeUnit.SECONDS)
-        .readTimeout(3, TimeUnit.SECONDS)
-        .build()
-
+    private val candidateUrls = candidateUrls.toMutableList()
+    private var activeBaseUrl: String? = null
     private var heartbeatJob: Job? = null
 
-    // Update base url at runtime if needed
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(2, TimeUnit.SECONDS)
+        .build()
+
+    // Override or set primary base URL
     fun setBaseUrl(url: String) {
-        baseUrl = url
+        activeBaseUrl = url.trimEnd('/')
     }
 
-    // Start periodic heartbeat
+    // Start periodic heartbeat requests
     fun start(scope: CoroutineScope) {
         if (heartbeatJob?.isActive == true) return
 
@@ -41,30 +47,40 @@ class HeartbeatClient(
         }
     }
 
-    // Stop periodic heartbeat
+    // Stop periodic heartbeat requests
     fun stop() {
         heartbeatJob?.cancel()
         heartbeatJob = null
     }
 
-    // Send single heartbeat request
+    // Send single heartbeat check
     suspend fun sendHeartbeat(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val url = "${baseUrl.trimEnd('/')}/heartbeat"
-            val request = Request.Builder()
-                .url(url)
-                .get()
-                .build()
+        val targets = activeBaseUrl?.let { listOf(it) } ?: candidateUrls
 
-            client.newCall(request).execute().use { response ->
-                Log.d("HeartbeatClient", "Heartbeat sent to $url, response: ${response.code}")
-                response.isSuccessful
+        for (base in targets) {
+            val url = "${base.trimEnd('/')}/heartbeat"
+            try {
+                val request = Request.Builder()
+                    .url(url)
+                    .get()
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string() ?: ""
+                        Log.d("HeartbeatClient", "Heartbeat success from $url: $body")
+                        activeBaseUrl = base
+                        return@withContext true
+                    } else {
+                        Log.w("HeartbeatClient", "Heartbeat received ${response.code} from $url")
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w("HeartbeatClient", "Heartbeat failed for $url: ${e.message}")
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.w("HeartbeatClient", "Heartbeat failed: ${e.message}")
-            false
         }
+        false
     }
 }

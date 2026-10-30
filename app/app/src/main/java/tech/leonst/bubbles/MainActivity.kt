@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Start sending heartbeats to base url
+        // Start periodic heartbeat requests
         heartbeatClient.start(lifecycleScope)
 
         setContent {
