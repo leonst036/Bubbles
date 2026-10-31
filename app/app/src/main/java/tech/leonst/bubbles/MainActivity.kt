@@ -1,9 +1,14 @@
 package tech.leonst.bubbles
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -19,6 +24,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -44,6 +54,10 @@ val BubbleBlueDark = Color(0xFF0C2860)
 class MainActivity : ComponentActivity() {
     private val heartbeatClient = HeartbeatClient()
 
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -51,8 +65,24 @@ class MainActivity : ComponentActivity() {
         // Start periodic heartbeat requests
         heartbeatClient.start(lifecycleScope)
 
+        requestMicrophonePermission()
+
         setContent {
-            DarkScreen()
+            DarkScreen(
+                onSettingsClick = {
+                    startActivity(Intent(this, SettingsScreen::class.java))
+                }
+            )
+        }
+    }
+
+    private fun requestMicrophonePermission() {
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
@@ -64,17 +94,34 @@ class MainActivity : ComponentActivity() {
 
 
 @Composable
-fun DarkScreen(modifier: Modifier = Modifier) {
+fun DarkScreen(
+    modifier: Modifier = Modifier,
+    onSettingsClick: () -> Unit = {}
+) {
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(DarkBackground)
-            .navigationBarsPadding()
-            .padding(bottom = 24.dp),
-        contentAlignment = Alignment.BottomCenter
     ) {
+        IconButton(
+            onClick = onSettingsClick,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(16.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Settings,
+                contentDescription = "Settings",
+                tint = Color.White
+            )
+        }
+
         SmileyBubble(
             modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 24.dp)
                 .fillMaxWidth(0.92f)
                 .fillMaxHeight(0.43f)
         )
