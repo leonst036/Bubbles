@@ -86,6 +86,9 @@ async def receive_responses(session, audio_queue: asyncio.Queue):
 
 
 async def main():
+    with open("../promts/SystemPromt.txt", "r") as f:
+        system_prompt = f.read()
+
     p = pyaudio.PyAudio()
 
     mic_stream = p.open(
@@ -115,7 +118,7 @@ async def main():
         system_instruction=types.Content(
             parts=[
                 types.Part.from_text(
-                    text="You are Bubbles, a cute, playful companion. Keep your spoken responses concise and natural."
+                    text=system_prompt
                 )
             ]
         ),

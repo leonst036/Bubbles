@@ -259,10 +259,10 @@ fun SmileyBubble(
             val theta = (2.0 * PI * i / steps).toFloat()
             val sideEmphasis = 0.45f + 0.55f * cos(theta) * cos(theta)
             val wave = (
-                0.048f * sideEmphasis * sin(6f * theta + wavePhase1) +
-                0.028f * sideEmphasis * cos(4f * theta - wavePhase2) +
-                0.018f * sin(3f * theta + wavePhase2)
-            ) * ampBoost
+                    0.048f * sideEmphasis * sin(6f * theta + wavePhase1) +
+                            0.028f * sideEmphasis * cos(4f * theta - wavePhase2) +
+                            0.018f * sin(3f * theta + wavePhase2)
+                    ) * ampBoost
 
             val r = baseRadius * (1f + wave)
             val x = cx + r * 1.06f * cos(theta)
