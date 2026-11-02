@@ -15,9 +15,7 @@ import java.util.concurrent.TimeUnit
 
 class HeartbeatClient(
     candidateUrls: List<String> = listOf(
-        "http://127.0.0.1:8000",
-        "http://192.168.55.127:8000",
-        "http://10.0.2.2:8000"
+        "http://192.168.55.224:8000",
     ),
     private val intervalMillis: Long = 5000L
 ) {
@@ -33,6 +31,16 @@ class HeartbeatClient(
     // Override or set primary base URL
     fun setBaseUrl(url: String) {
         activeBaseUrl = url.trimEnd('/')
+    }
+
+    // Return active base URL if known, followed by candidate URLs
+    fun getTargetUrls(): List<String> {
+        val active = activeBaseUrl
+        return if (active != null) {
+            listOf(active) + candidateUrls.filter { it != active }
+        } else {
+            candidateUrls.toList()
+        }
     }
 
     // Start periodic heartbeat requests

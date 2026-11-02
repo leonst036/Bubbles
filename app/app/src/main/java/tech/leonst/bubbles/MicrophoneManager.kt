@@ -18,7 +18,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.sqrt
 
-class MicrophoneManager(private val context: Context) {
+class MicrophoneManager(
+    private val context: Context,
+    private val onAudioChunk: ((ByteArray) -> Unit)? = null
+) {
     private val _isRecording = MutableStateFlow(false)
     val isRecording = _isRecording.asStateFlow()
 
@@ -83,13 +86,18 @@ class MicrophoneManager(private val context: Context) {
                     val readCount = record.read(buffer, 0, buffer.size)
                     if (readCount > 0) {
                         var sum = 0.0
+                        val pcmBytes = ByteArray(readCount * 2)
                         for (i in 0 until readCount) {
-                            val sample = buffer[i].toDouble()
+                            val s = buffer[i]
+                            val sample = s.toDouble()
                             sum += sample * sample
+                            pcmBytes[i * 2] = (s.toInt() and 0xFF).toByte()
+                            pcmBytes[i * 2 + 1] = ((s.toInt() shr 8) and 0xFF).toByte()
                         }
                         val rms = sqrt(sum / readCount)
                         val normalized = (rms / 32767.0).toFloat().coerceIn(0f, 1f)
                         _amplitude.value = normalized
+                        onAudioChunk?.invoke(pcmBytes)
                     }
                 }
             }

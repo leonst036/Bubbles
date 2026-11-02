@@ -63,12 +63,18 @@ val BubbleActiveDark = Color(0xFF1A3B8B)
 
 class MainActivity : ComponentActivity() {
     private val heartbeatClient = HeartbeatClient()
-    private val microphoneManager by lazy { MicrophoneManager(this) }
+    private val audioStreamClient = AudioStreamClient(heartbeatClient)
+    private val microphoneManager by lazy {
+        MicrophoneManager(this) { pcmBytes ->
+            audioStreamClient.sendAudioChunk(pcmBytes)
+        }
+    }
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
+            audioStreamClient.startInputStream(lifecycleScope)
             microphoneManager.start(lifecycleScope)
         }
     }
@@ -78,6 +84,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         heartbeatClient.start(lifecycleScope)
+        audioStreamClient.startOutputStream(lifecycleScope)
 
         setContent {
             val isRecording by microphoneManager.isRecording.collectAsState()
@@ -88,6 +95,7 @@ class MainActivity : ComponentActivity() {
                 amplitude = amplitude,
                 onBubblePressStart = {
                     if (microphoneManager.hasPermission()) {
+                        audioStreamClient.startInputStream(lifecycleScope)
                         microphoneManager.start(lifecycleScope)
                         Log.w("microphone", "Microphone is being recorded");
 
@@ -98,6 +106,7 @@ class MainActivity : ComponentActivity() {
                 },
                 onBubblePressEnd = {
                     microphoneManager.stop()
+                    audioStreamClient.stopInputStream()
                 },
                 onSettingsClick = {
                     startActivity(Intent(this, SettingsScreen::class.java))
@@ -109,11 +118,13 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         microphoneManager.stop()
+        audioStreamClient.stopInputStream()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         microphoneManager.stop()
+        audioStreamClient.stopAll()
         heartbeatClient.stop()
     }
 }
