@@ -1,0 +1,1 @@
+"""Modular FastMCP server package."""

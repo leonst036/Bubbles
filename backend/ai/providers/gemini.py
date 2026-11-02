@@ -1,9 +1,18 @@
 import asyncio
+import contextlib
 import os
+import sys
 from pathlib import Path
 from typing import Set
 from google import genai
 from google.genai import types
+
+try:
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
 
 # Load .env file if GEMINI_API_KEY is not already set
 env_path = Path(__file__).resolve().parents[3] / ".env"
@@ -32,8 +41,18 @@ def load_system_prompt() -> str:
     return "You are Bubble."
 
 
-def build_live_config() -> types.LiveConnectConfig:
+def build_live_config(tools: list | None = None, tool_descriptions: str = "") -> types.LiveConnectConfig:
     system_prompt = load_system_prompt()
+    if tool_descriptions:
+        system_prompt += (
+            f"\n\n## Tools & Capabilities\n"
+            f"You have access to these external MCP tools: {tool_descriptions}.\n"
+            f"- If the user asks you to test or check your tools, call `test_tool` or `get_current_time`.\n"
+            f"- When asked what tools you have, mention them.\n"
+            f"- Always use the result returned from a tool call to answer the user.\n"
+            f"- If a tool encounters an error, state the exact error message clearly to the user."
+        )
+
     return types.LiveConnectConfig(
         response_modalities=[types.Modality.AUDIO],
         thinking_config=types.ThinkingConfig(
@@ -44,7 +63,88 @@ def build_live_config() -> types.LiveConnectConfig:
         system_instruction=types.Content(
             parts=[types.Part.from_text(text=system_prompt)]
         ),
+        tools=tools,
     )
+
+
+@contextlib.asynccontextmanager
+async def connect_mcp_session():
+    # Start and connect to local FastMCP server
+    if not MCP_AVAILABLE:
+        print("[MCP] mcp package not installed, running without MCP tools.")
+        yield None
+        return
+
+    backend_dir = Path(__file__).resolve().parents[2]
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "mcp_server.server"],
+        cwd=str(backend_dir),
+    )
+
+    try:
+        async with stdio_client(server_params) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as mcp_session:
+                await mcp_session.initialize()
+                print("[MCP] Connected to FastMCP server.")
+                yield mcp_session
+    except Exception as e:
+        print(f"[MCP] Failed to connect to MCP server: {e}")
+        yield None
+
+
+async def execute_tool_calls(session, mcp_session, tool_call):
+    # Execute MCP tools requested by Gemini and send back responses
+    function_responses = []
+    for call in tool_call.function_calls:
+        print(f"\n>>> [MCP Tool Call] Tool: '{call.name}' | Args: {call.args} | ID: {call.id}")
+        is_error = False
+        try:
+            call_args = dict(call.args) if call.args else {}
+            result = await mcp_session.call_tool(call.name, arguments=call_args)
+            output_parts = [
+                content.text
+                for content in result.content
+                if getattr(content, "type", "") == "text"
+            ]
+            if not output_parts and getattr(result, "structured_content", None):
+                output_parts = [str(result.structured_content)]
+            output = "\n".join(output_parts) if output_parts else "Success"
+            print(f">>> [MCP Tool Result] {output}")
+        except Exception as e:
+            is_error = True
+            output = f"Error executing tool '{call.name}': {e}"
+            print(f">>> [MCP Tool Error] {output}")
+
+        response_payload = {
+            "result": output,
+            "output": output,
+        }
+        if is_error:
+            response_payload["error"] = output
+
+        function_responses.append(
+            types.FunctionResponse(
+                name=call.name,
+                id=call.id,
+                response=response_payload,
+            )
+        )
+
+    try:
+        await session.send_tool_response(function_responses=function_responses)
+        print(">>> [MCP Tool Response] Sent response to Gemini Live.")
+        # Advance server VAD audio clock so Gemini Live continues speaking without waiting for next user press
+        silence = b"\x00" * (CHUNK_SIZE * 4)
+        await session.send_realtime_input(
+            audio=types.Blob(
+                data=silence,
+                mime_type=f"audio/pcm;rate={INPUT_SAMPLE_RATE}",
+            )
+        )
+        await session.send_realtime_input(audio_stream_end=True)
+    except Exception as e:
+        print(f">>> [MCP Tool Response Error] Failed to send tool response: {e}")
 
 
 class GeminiLiveManager:
@@ -75,7 +175,7 @@ class GeminiLiveManager:
         for q in list(self._output_queues):
             await q.put(data)
 
-    async def _receive_responses(self, session):
+    async def _receive_responses(self, session, mcp_session=None):
         while True:
             async for response in session.receive():
                 server_content = response.server_content
@@ -99,18 +199,40 @@ class GeminiLiveManager:
                     if server_content.turn_complete:
                         print("\n\n--- (Listening...) ---")
 
+                # Handle MCP tool calls if emitted by the model
+                if response.tool_call is not None and mcp_session is not None:
+                    await execute_tool_calls(session, mcp_session, response.tool_call)
+
     async def _session_loop(self):
         while True:
             try:
-                config = build_live_config()
-                print("Connecting to Bubbles (Gemini 3.8 Live Extended Thinking)...")
-                async with client.aio.live.connect(
-                    model="gemini-3.8-live-extended-thinking", config=config
-                ) as session:
-                    self._session = session
-                    self._connected_event.set()
-                    print("Connected to Gemini Live session.")
-                    await self._receive_responses(session)
+                async with connect_mcp_session() as mcp_session:
+                    tools = None
+                    tool_desc = ""
+
+                    if mcp_session is not None:
+                        tools_result = await mcp_session.list_tools()
+                        print(f"[MCP] Loaded {len(tools_result.tools)} tool(s): {[t.name for t in tools_result.tools]}")
+                        try:
+                            from google.genai._mcp_utils import mcp_to_gemini_tools
+                            tools = mcp_to_gemini_tools(tools_result.tools)
+                        except Exception:
+                            tools = tools_result.tools
+
+                        tool_desc = ", ".join(
+                            f"'{t.name}' ({t.description or 'utility tool'})" for t in tools_result.tools
+                        )
+
+                    config = build_live_config(tools=tools, tool_descriptions=tool_desc)
+
+                    print("Connecting to Bubbles (Gemini 3.8 Live Extended Thinking)...")
+                    async with client.aio.live.connect(
+                        model="gemini-3.8-live-extended-thinking", config=config
+                    ) as session:
+                        self._session = session
+                        self._connected_event.set()
+                        print("Connected to Gemini Live session.")
+                        await self._receive_responses(session, mcp_session=mcp_session)
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -133,7 +255,7 @@ class GeminiLiveManager:
             )
 
     async def end_audio_turn(self):
-        # Send brief silence so server-side VAD detects end of speech after push-to-talk release
+        # Send brief silence and end signal so server-side VAD detects end of speech after push-to-talk release
         if self._session is None:
             return
         silence_chunk = b"\x00" * (CHUNK_SIZE * 2)
@@ -147,6 +269,10 @@ class GeminiLiveManager:
                 )
             )
             await asyncio.sleep(0.04)
+        try:
+            await self._session.send_realtime_input(audio_stream_end=True)
+        except Exception as e:
+            print(f"[Audio] End audio stream notice: {e}")
 
     async def stream_output(self):
         await self.ensure_running()
@@ -189,8 +315,8 @@ async def play_audio_stream(speaker_stream, audio_queue: asyncio.Queue):
         pass
 
 
-async def receive_responses(session, audio_queue: asyncio.Queue):
-    # Continuously receive audio and transcriptions across all turns
+async def receive_responses(session, audio_queue: asyncio.Queue, mcp_session=None):
+    # Continuously receive audio, transcriptions, and tool calls across turns
     try:
         while True:
             async for response in session.receive():
@@ -219,6 +345,10 @@ async def receive_responses(session, audio_queue: asyncio.Queue):
 
                     if server_content.turn_complete:
                         print("\n\n--- (Listening...) ---")
+
+                # Handle MCP tool calls in standalone mode
+                if response.tool_call is not None and mcp_session is not None:
+                    await execute_tool_calls(session, mcp_session, response.tool_call)
     except asyncio.CancelledError:
         pass
 
@@ -244,24 +374,42 @@ async def main():
     )
 
     audio_queue = asyncio.Queue()
-    config = build_live_config()
 
     print("Connecting to Bubbles (Gemini 3.8 Live Extended Thinking)...")
     print("Start speaking into your microphone! Press Ctrl+C to stop.\n")
 
     try:
-        async with client.aio.live.connect(
-            model="gemini-3.8-live-extended-thinking", config=config
-        ) as session:
-            mic_task = asyncio.create_task(send_mic_audio(session, mic_stream))
-            playback_task = asyncio.create_task(
-                play_audio_stream(speaker_stream, audio_queue)
-            )
-            receive_task = asyncio.create_task(
-                receive_responses(session, audio_queue)
-            )
+        async with connect_mcp_session() as mcp_session:
+            tools = None
+            tool_desc = ""
 
-            await asyncio.gather(mic_task, playback_task, receive_task)
+            if mcp_session is not None:
+                tools_result = await mcp_session.list_tools()
+                print(f"[MCP] Loaded {len(tools_result.tools)} tool(s): {[t.name for t in tools_result.tools]}")
+                try:
+                    from google.genai._mcp_utils import mcp_to_gemini_tools
+                    tools = mcp_to_gemini_tools(tools_result.tools)
+                except Exception:
+                    tools = tools_result.tools
+
+                tool_desc = ", ".join(
+                    f"'{t.name}' ({t.description or 'utility tool'})" for t in tools_result.tools
+                )
+
+            config = build_live_config(tools=tools, tool_descriptions=tool_desc)
+
+            async with client.aio.live.connect(
+                model="gemini-3.8-live-extended-thinking", config=config
+            ) as session:
+                mic_task = asyncio.create_task(send_mic_audio(session, mic_stream))
+                playback_task = asyncio.create_task(
+                    play_audio_stream(speaker_stream, audio_queue)
+                )
+                receive_task = asyncio.create_task(
+                    receive_responses(session, audio_queue, mcp_session=mcp_session)
+                )
+
+                await asyncio.gather(mic_task, playback_task, receive_task)
     except asyncio.CancelledError:
         pass
     finally:
