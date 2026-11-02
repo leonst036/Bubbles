@@ -50,6 +50,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.Text
 import androidx.lifecycle.lifecycleScope
 import kotlin.math.PI
 import kotlin.math.cos
@@ -62,6 +65,8 @@ val BubbleBlueLight = Color(0xFF16469E)
 val BubbleBlueDark = Color(0xFF0C2860)
 val BubbleActiveLight = Color(0xFF2575FC)
 val BubbleActiveDark = Color(0xFF1A3B8B)
+val BubbleDisconnectedLight = Color(0xFFD32F2F)
+val BubbleDisconnectedDark = Color(0xFF7F0000)
 
 class MainActivity : ComponentActivity() {
     private val heartbeatClient = HeartbeatClient()
@@ -103,8 +108,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             val isRecording by microphoneManager.isRecording.collectAsState()
             val amplitude by microphoneManager.amplitude.collectAsState()
+            val isConnected by heartbeatClient.isConnected.collectAsState()
 
             MainScreen(
+                isConnected = isConnected,
                 isRecording = isRecording,
                 amplitude = amplitude,
                 onBubblePressStart = {
@@ -153,6 +160,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(
     modifier: Modifier = Modifier,
+    isConnected: Boolean = true,
     isRecording: Boolean = false,
     amplitude: Float = 0f,
     onBubblePressStart: () -> Unit = {},
@@ -164,6 +172,19 @@ fun MainScreen(
             .fillMaxSize()
             .background(DarkBackground)
     ) {
+        if (!isConnected) {
+            Text(
+                text = "Not Connected",
+                color = Color(0xFFFF5252),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 16.dp)
+            )
+        }
+
         IconButton(
             onClick = onSettingsClick,
             modifier = Modifier
@@ -185,6 +206,7 @@ fun MainScreen(
                 .padding(bottom = 24.dp)
                 .fillMaxWidth(0.92f)
                 .fillMaxHeight(0.43f),
+            isConnected = isConnected,
             isRecording = isRecording,
             amplitude = amplitude,
             onPressStart = onBubblePressStart,
@@ -196,6 +218,7 @@ fun MainScreen(
 @Composable
 fun SmileyBubble(
     modifier: Modifier = Modifier,
+    isConnected: Boolean = true,
     isRecording: Boolean = false,
     amplitude: Float = 0f,
     onPressStart: () -> Unit = {},
@@ -237,14 +260,26 @@ fun SmileyBubble(
         label = "floatPhase"
     )
 
+    val targetLightColor = when {
+        !isConnected -> BubbleDisconnectedLight
+        isRecording -> BubbleActiveLight
+        else -> BubbleBlueLight
+    }
+
+    val targetDarkColor = when {
+        !isConnected -> BubbleDisconnectedDark
+        isRecording -> BubbleActiveDark
+        else -> BubbleBlueDark
+    }
+
     val lightColor by animateColorAsState(
-        targetValue = if (isRecording) BubbleActiveLight else BubbleBlueLight,
+        targetValue = targetLightColor,
         animationSpec = tween(durationMillis = 350),
         label = "lightColor"
     )
 
     val darkColor by animateColorAsState(
-        targetValue = if (isRecording) BubbleActiveDark else BubbleBlueDark,
+        targetValue = targetDarkColor,
         animationSpec = tween(durationMillis = 350),
         label = "darkColor"
     )

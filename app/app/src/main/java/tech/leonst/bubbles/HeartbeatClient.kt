@@ -6,6 +6,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -22,6 +25,13 @@ class HeartbeatClient(
     private val candidateUrls = candidateUrls.toMutableList()
     private var activeBaseUrl: String? = null
     private var heartbeatJob: Job? = null
+
+    private val _isConnected = MutableStateFlow(false)
+    val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
+
+    @Volatile
+    var lastHeartbeatSuccess: Boolean = false
+        private set
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(2, TimeUnit.SECONDS)
@@ -78,6 +88,8 @@ class HeartbeatClient(
                         val body = response.body?.string() ?: ""
                         Log.d("HeartbeatClient", "Heartbeat success from $url: $body")
                         activeBaseUrl = base
+                        lastHeartbeatSuccess = true
+                        _isConnected.value = true
                         return@withContext true
                     } else {
                         Log.w("HeartbeatClient", "Heartbeat received ${response.code} from $url")
@@ -89,6 +101,8 @@ class HeartbeatClient(
                 Log.w("HeartbeatClient", "Heartbeat failed for $url: ${e.message}")
             }
         }
+        lastHeartbeatSuccess = false
+        _isConnected.value = false
         false
     }
 }
