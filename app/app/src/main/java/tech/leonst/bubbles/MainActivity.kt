@@ -2,11 +2,13 @@ package tech.leonst.bubbles
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -79,12 +81,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val localNetworkPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            heartbeatClient.start(lifecycleScope)
+            audioStreamClient.startOutputStream(lifecycleScope)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        heartbeatClient.start(lifecycleScope)
-        audioStreamClient.startOutputStream(lifecycleScope)
+        if (ContextCompat.checkSelfPermission(this, "android.permission.ACCESS_LOCAL_NETWORK")
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            localNetworkPermissionLauncher.launch("android.permission.ACCESS_LOCAL_NETWORK")
+        }
 
         setContent {
             val isRecording by microphoneManager.isRecording.collectAsState()
@@ -115,10 +129,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        heartbeatClient.start(lifecycleScope)
+        audioStreamClient.startOutputStream(lifecycleScope)
+    }
+
     override fun onStop() {
         super.onStop()
         microphoneManager.stop()
-        audioStreamClient.stopInputStream()
+        audioStreamClient.stopAll()
+        heartbeatClient.stop()
     }
 
     override fun onDestroy() {
