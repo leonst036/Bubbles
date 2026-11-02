@@ -14,6 +14,12 @@ Bubbles is a cute app on your smartpone that can control you PC and make you hap
 
 Right now it can't do much. It's just a prototype. 
 
+## Tech Stack
+
+- Backend: Python, FastAPI
+- Frontend: Kotlin (Android), Jetpack Compose
+- AI: Google Gemini (More coming soon)
+
 ## Disclaimer
 
 Bubbles is a work in progress and is not intended for production use. It is a personal project created for learning purposes. The developer does not guarantee the functionality, stability, or security of the application. Users proceed at their own risk.
