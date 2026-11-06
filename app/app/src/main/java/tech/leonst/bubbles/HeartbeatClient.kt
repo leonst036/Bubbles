@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
 
 class HeartbeatClient(
     candidateUrls: List<String> = listOf(
-        "http://192.168.55.224:8000",
+        "http://${ServerPreferences.DEFAULT_IP}:${ServerPreferences.DEFAULT_PORT}",
     ),
     private val intervalMillis: Long = 5000L
 ) {
@@ -41,6 +41,14 @@ class HeartbeatClient(
     // Override or set primary base URL
     fun setBaseUrl(url: String) {
         activeBaseUrl = url.trimEnd('/')
+    }
+
+    // Set and replace candidate base URL
+    fun updateBaseUrl(url: String) {
+        val normalized = url.trimEnd('/')
+        activeBaseUrl = normalized
+        candidateUrls.clear()
+        candidateUrls.add(normalized)
     }
 
     // Return active base URL if known, followed by candidate URLs

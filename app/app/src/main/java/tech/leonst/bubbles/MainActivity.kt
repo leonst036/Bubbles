@@ -98,6 +98,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        heartbeatClient.updateBaseUrl(ServerPreferences.getBaseUrl(this))
 
         if (ContextCompat.checkSelfPermission(this, "android.permission.ACCESS_LOCAL_NETWORK")
             != PackageManager.PERMISSION_GRANTED
@@ -138,6 +139,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        heartbeatClient.updateBaseUrl(ServerPreferences.getBaseUrl(this))
         heartbeatClient.start(lifecycleScope)
         audioStreamClient.startOutputStream(lifecycleScope)
     }
