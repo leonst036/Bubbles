@@ -38,7 +38,7 @@ class HeartbeatClient(
         .readTimeout(2, TimeUnit.SECONDS)
         .build()
 
-    // Override or set primary base URL
+    // set primary base URL
     fun setBaseUrl(url: String) {
         activeBaseUrl = url.trimEnd('/')
     }
@@ -61,7 +61,7 @@ class HeartbeatClient(
         }
     }
 
-    // Start periodic heartbeat requests
+    // Start heartbeat requests
     fun start(scope: CoroutineScope) {
         if (heartbeatJob?.isActive == true) return
 
@@ -73,13 +73,13 @@ class HeartbeatClient(
         }
     }
 
-    // Stop periodic heartbeat requests
+    // Stop heartbeat requests
     fun stop() {
         heartbeatJob?.cancel()
         heartbeatJob = null
     }
 
-    // Send single heartbeat check
+    // Send heartbeat check
     suspend fun sendHeartbeat(): Boolean = withContext(Dispatchers.IO) {
         val targets = activeBaseUrl?.let { listOf(it) } ?: candidateUrls
 

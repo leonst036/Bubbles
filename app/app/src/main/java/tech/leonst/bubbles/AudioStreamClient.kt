@@ -34,7 +34,7 @@ class AudioStreamClient(private val heartbeatClient: HeartbeatClient) {
 
     private val outputSampleRate = 24000
 
-    // Start receiving and playing live PCM audio from /api/stream/output
+    // Start receiving playing from /api/stream/output
     fun startOutputStream(scope: CoroutineScope) {
         if (outputJob?.isActive == true) return
 
@@ -93,7 +93,7 @@ class AudioStreamClient(private val heartbeatClient: HeartbeatClient) {
         }
     }
 
-    // Start streaming live microphone PCM audio to /api/stream/input
+    // Start streaming mic to /api/stream/input
     fun startInputStream(scope: CoroutineScope) {
         stopInputStream()
 
@@ -141,19 +141,19 @@ class AudioStreamClient(private val heartbeatClient: HeartbeatClient) {
         }
     }
 
-    // Push a chunk of 16-bit PCM audio bytes to the active input stream
+    // Push a chunk
     fun sendAudioChunk(pcmBytes: ByteArray) {
         inputChannel?.trySend(pcmBytes)
     }
 
-    // Finish the current input stream
+
     fun stopInputStream() {
         inputChannel?.close()
         inputChannel = null
         inputJob = null
     }
 
-    // Stop all input and output streams
+    // Stop all input and output
     fun stopAll() {
         stopInputStream()
         outputJob?.cancel()
